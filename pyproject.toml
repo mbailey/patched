@@ -1,0 +1,26 @@
+[project]
+name = "patched"
+version = "0.1.0"
+description = "What on your Mac needs patching, and what to do about it"
+authors = [{ name = "Mike Bailey" }]
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+]
+
+[project.scripts]
+patched = "patched.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,106 @@
+# Patched alert rules. Counts only: no rule carries a product, version,
+# process or port, so no alert or Alertmanager page names one. The names
+# stay in ~/.patched/scans (patched scan --detail).
+# Routing, with an Alertmanager: the severity label (critical, warning,
+# info) picks the route. Without one they only show on Prometheus's alerts
+# page and the board.
+groups:
+  - name: patched
+    rules:
+      # A silent collector must not read as "all clear". node_exporter keeps
+      # serving the last file, so alert on the file's age.
+      - alert: PatchedStale
+        expr: time() - node_textfile_mtime_seconds{file=~".*patched\\.prom"} > 2 * 3600
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Patched has not scanned {{ $labels.instance }} for {{ $value | humanizeDuration }}"
+      - alert: PatchedMissing
+        expr: absent(node_textfile_mtime_seconds{file=~".*patched\\.prom"})
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "No Patched metrics at all: the collector never ran, or its file is gone"
+      # The fast path: known exploited, on this Mac.
+      # in_use is the opt link's target; a missing label counts as in use.
+      - alert: PatchedKnownExploited
+        expr: sum(patched_exposed{kev="true",in_use!="false"}) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value }} known-exploited advisories in use on this Mac: see ~/.patched/scans/"
+      - alert: PatchedKnownExploitedUnusedKeg
+        expr: sum(patched_exposed{kev="true",in_use="false"}) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} known-exploited advisories in unused copies: evict them (names: patched scan --detail)"
+      - alert: PatchedCriticalExposed
+        expr: sum(patched_exposed{severity="critical",kev="false",in_use!="false"}) > 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} critical advisories in use: see ~/.patched/scans/"
+      # The fast path: an exposed item whose program listens beyond
+      # loopback alerts at once (no for:). Loopback alone does not count;
+      # a loopback port that tailscale serve publishes does, as
+      # bind="served".
+      - alert: PatchedExposedListening
+        expr: sum(patched_exposed_listening{bind!="loopback"}) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value }} exposed items listen beyond loopback or are served on the tailnet: see ~/.patched/scans/"
+      # Policy: 127.0.0.1 by default; wider is a decision on the services
+      # allow list. Until a list loads, every wider one counts.
+      - alert: PatchedUnexpectedListener
+        expr: patched_listening_unallowed > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} listeners beyond loopback are not on the services allow list"
+      # Single-host sums, like every rule here: this Prometheus scrapes one
+      # instance. A second host on one Prometheus needs by/on(instance).
+      # The product allow list: installed top-level products that no
+      # layer's Brewfile or apps file names. Counts only; the names are
+      # `patched allow check`, or the board's detail row.
+      - alert: PatchedUnexpectedProduct
+        # One cause, one alert: a list that did not load is PatchedAllowlistNotLoaded's.
+        expr: sum(patched_items_unallowed) > 0 and on() patched_allowlist_loaded{list="products"} == 1
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} installed products are on no allow list: see patched allow check"
+      # A list that did not load allows nothing, so every item counts against it.
+      - alert: PatchedAllowlistNotLoaded
+        expr: patched_allowlist_loaded == 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "The {{ $labels.list }} allow list did not load: every item counts as not allowed"
+      # A Brewfile is Ruby and patched never runs it; a line it can't read allows nothing.
+      - alert: PatchedAllowlistErrors
+        expr: sum by (list) (patched_allowlist_errors) > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} lines in the {{ $labels.list }} allow list can't be read: each allows nothing"
+      # What we can't see: items that match no advisory ID.
+      - alert: PatchedBlindSpotsGrew
+        # reason is empty (OSV holds nothing), blind (records, but no version match) or no_key
+        expr: sum(patched_items_unmatched) > sum(patched_items_unmatched offset 1d) * 1.2
+        for: 1h
+        labels: {severity: info}
+        annotations:
+          summary: "Items with no advisory match rose 20% in a day: {{ $value }}"
+      # A stage that failed means its numbers are missing, not zero.
+      - alert: PatchedStageFailed
+        expr: patched_scan_ok == 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Patched's {{ $labels.stage }} stage failed: its numbers are missing, not zero"
+      # Fires for any protection check that reads off (FileVault, the firewall).
+      - alert: PatchedProtectionOff
+        expr: patched_protection == 0
+        for: 1h
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $labels.check }} is off"

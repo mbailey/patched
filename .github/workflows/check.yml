@@ -1,0 +1,27 @@
+# make check (ruff, shellcheck, pytest) on every push to master and every
+# pull request. The tests use no network. macOS, because patched is.
+name: check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: shellcheck
+        run: command -v shellcheck || brew install shellcheck
+      - name: make check
+        run: make check
